@@ -110,13 +110,12 @@ namespace randomx {
 	#define ADDR(x) ((uint8_t*)&x)
 #	endif
 
-	#define codePrefetchScratchpad ADDR(randomx_prefetch_scratchpad)
-	#define codePrefetchScratchpadEnd ADDR(randomx_prefetch_scratchpad_end)
 	#define codePrologue ADDR(randomx_program_prologue)
 	#define codeLoopBegin ADDR(randomx_program_loop_begin)
 	#define codeLoopLoad ADDR(randomx_program_loop_load)
 	#define codeLoopLoadXOP ADDR(randomx_program_loop_load_xop)
 	#define codeProgamStart ADDR(randomx_program_start)
+	#define codeReadDataset ADDR(randomx_program_read_dataset)
 	#define codeReadDatasetLightSshInit ADDR(randomx_program_read_dataset_sshash_init)
 	#define codeReadDatasetLightSshFin ADDR(randomx_program_read_dataset_sshash_fin)
 	#define codeDatasetInit ADDR(randomx_dataset_init)
@@ -134,10 +133,10 @@ namespace randomx {
 	#define codeShhEnd ADDR(randomx_sshash_end)
 	#define codeShhInit ADDR(randomx_sshash_init)
 
-	#define prefetchScratchpadSize (codePrefetchScratchpadEnd - codePrefetchScratchpad)
 	#define prologueSize (codeLoopBegin - codePrologue)
 	#define loopLoadSize (codeLoopLoadXOP - codeLoopLoad)
 	#define loopLoadXOPSize (codeProgamStart - codeLoopLoadXOP)
+	#define readDatasetSize (codeReadDatasetLightSshInit - codeReadDataset)
 	#define readDatasetLightInitSize (codeReadDatasetLightSshFin - codeReadDatasetLightSshInit)
 	#define readDatasetLightFinSize (codeLoopStore - codeReadDatasetLightSshFin)
 	#define loopStoreSize (codeLoopEnd - codeLoopStore)
@@ -320,27 +319,14 @@ namespace randomx {
 
 		vm_flags = flags;
 
-		generateProgramPrologue(prog, pcfg, false);
-
-		uint8_t* p;
-		uint32_t n;
-		if (flags & RANDOMX_FLAG_AMD) {
-			p = RandomX_CurrentConfig.codeReadDatasetRyzenTweaked;
-			n = RandomX_CurrentConfig.codeReadDatasetRyzenTweakedSize;
-		}
-		else {
-			p = RandomX_CurrentConfig.codeReadDatasetTweaked;
-			n = RandomX_CurrentConfig.codeReadDatasetTweakedSize;
-		}
-		memcpy(code + codePos, p, n);
-		codePos += n;
-
+		generateProgramPrologue(prog, pcfg);
+		emit(codeReadDataset, readDatasetSize, code, codePos);
 		generateProgramEpilogue(prog, pcfg);
 	}
 
 	void JitCompilerX86::generateProgramLight(Program& prog, ProgramConfiguration& pcfg, uint32_t datasetOffset) {
-		generateProgramPrologue(prog, pcfg, true);
-		emit(RandomX_CurrentConfig.codeReadDatasetLightSshInitTweaked, readDatasetLightInitSize, code, codePos);
+		generateProgramPrologue(prog, pcfg);
+		emit(codeReadDatasetLightSshInit, readDatasetLightInitSize, code, codePos);
 		*(uint32_t*)(code + codePos) = 0xc381;
 		codePos += 2;
 		emit32(datasetOffset / CacheLineSize, code, codePos);
@@ -415,7 +401,7 @@ namespace randomx {
 		}
 	}
 
-	void JitCompilerX86::generateProgramPrologue(Program& prog, ProgramConfiguration& pcfg, bool light) {
+	void JitCompilerX86::generateProgramPrologue(Program& prog, ProgramConfiguration& pcfg) {
 		codePos = ADDR(randomx_program_prologue_first_load) - ADDR(randomx_program_prologue);
 		*(uint32_t*)(code + codePos + 4) = RandomX_CurrentConfig.ScratchpadL3Mask64_Calculated;
 		*(uint32_t*)(code + codePos + 14) = RandomX_CurrentConfig.ScratchpadL3Mask64_Calculated;
@@ -429,7 +415,7 @@ namespace randomx {
 #		endif
 
 		imul_rcp_storage = code + (ADDR(randomx_program_imul_rcp_store) - codePrologue) + 2;
-		imul_rcp_storage_used = light ? 0xFFFFFFFFUL : 0;
+		imul_rcp_storage_used = 0;
 
 		memcpy(imul_rcp_storage - 34, &pcfg.eMask, sizeof(pcfg.eMask));
 		codePos = codePosFirst;
@@ -467,7 +453,7 @@ namespace randomx {
 	void JitCompilerX86::generateProgramEpilogue(Program& prog, ProgramConfiguration& pcfg) {
 		*(uint64_t*)(code + codePos) = 0xc03349c08b49ull + (static_cast<uint64_t>(pcfg.readReg0) << 16) + (static_cast<uint64_t>(pcfg.readReg1) << 40);
 		codePos += 6;
-		emit(RandomX_CurrentConfig.codePrefetchScratchpadTweaked, prefetchScratchpadSize, code, codePos);
+		emit(RandomX_CurrentConfig.codePrefetchScratchpadTweaked, RandomX_CurrentConfig.codePrefetchScratchpadTweakedSize, code, codePos);
 		memcpy(code + codePos, codeLoopStore, loopStoreSize);
 		codePos += loopStoreSize;
 
